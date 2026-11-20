@@ -345,6 +345,15 @@ func (st *Encoder) SetBitrate(v int32) error {
 	return nil
 }
 
+// UserBitrateBps is OPUS_GET_BITRATE: it returns the user-configured target the
+// ctl last set, i.e. OpusAuto (-1000), OpusBitrateMax (-1) or a concrete positive
+// bits-per-second. The LIVE rate each frame actually codes is recomputed into
+// st.bitrateBps by bitrateFromUser (and, under CBR, requantized to the byte
+// budget); this reports the requested target, not that per-frame figure, which is
+// what OPUS_GET_BITRATE reads back. It lets the real-time rate controller observe
+// the current target without a parallel copy.
+func (st *Encoder) UserBitrateBps() int32 { return st.userBitrateBps }
+
 // SetForceChannels is OPUS_SET_FORCE_CHANNELS (:2842).
 func (st *Encoder) SetForceChannels(v int) error {
 	if (v < 1 || v > st.channels) && v != OpusAuto {

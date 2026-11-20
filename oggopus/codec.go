@@ -36,6 +36,24 @@ type frameEncoder interface {
 	close()
 }
 
+// bitrateSetter is the OPTIONAL rate-control extension to frameEncoder. Only a
+// codec that can change its target bitrate mid-stream implements it; keeping it a
+// separate interface (rather than a frameEncoder method) means a minimal codec
+// seam still satisfies frameEncoder, and the container's SetBitrate reports the
+// capability cleanly instead of forcing every encoder to carry a no-op. The
+// opusFrameEncoder adapter implements it by forwarding to opus.Encoder.SetBitrate,
+// which changes only the next packet's target and touches no cross-frame state, so
+// the Ogg page sequence and granule timeline are unaffected.
+type bitrateSetter interface {
+	setBitrate(bps int) error
+}
+
+// bitrateGetter is the optional read counterpart of bitrateSetter, reporting the
+// codec's current user-configured target (0 for automatic).
+type bitrateGetter interface {
+	bitrate() int
+}
+
 // frameDecoder turns one opus packet into interleaved int16 PCM at 48 kHz. It is
 // the minimal surface the container reader needs from the codec.
 type frameDecoder interface {
@@ -105,6 +123,21 @@ func (e *opusFrameEncoder) encodeFrame(pcm []int16) (packet []byte, samples48k i
 // samples at 48 kHz if the Fs/400 term were dropped, and far more at the low
 // rates (52 instead of 312 at 8 kHz). TestOggOpusPreSkipIs312 pins it.
 func (e *opusFrameEncoder) lookahead() int { return e.preSkip48k }
+
+// setBitrate forwards a mid-stream target change to the wrapped opus encoder.
+// Bitrate changes touch no cross-frame codec state, so the packets already queued
+// in the container and every packet afterwards remain one continuous stream; the
+// Ogg layer's page sequence numbers and granule positions are derived purely from
+// packet order and duration, not rate.
+func (e *opusFrameEncoder) setBitrate(bps int) error {
+	if err := e.enc.SetBitrate(bps); err != nil {
+		return fmt.Errorf("oggopus: setting the encoder bitrate: %w", err)
+	}
+	return nil
+}
+
+// bitrate reports the wrapped encoder's current user target.
+func (e *opusFrameEncoder) bitrate() int { return e.enc.Bitrate() }
 
 // close releases codec resources. opus.Encoder holds only Go memory, so there is
 // nothing to release; the method exists because the seam has to work for a codec

@@ -283,6 +283,14 @@ input, prints both caveats, and skips any comparator that is not installed.
   that wraps all three behind one codec interface swaps only the import path. Its
   types are aliases of the `oggopus` types, so the two packages interoperate
   without conversion.
+- `ratectl`: real-time, feedback-driven bitrate adaptation for live streams. It
+  consumes packet-loss, queueing-delay and available-bandwidth feedback, applies
+  bounded, ramp-limited AIMD targets, and drives `Encoder.SetBitrate` on an
+  `opus`, `multistream` or `oggopus` encoder without rebuilding it or resetting
+  codec state. Stale, out-of-order and non-finite feedback are rejected, a zero
+  bandwidth estimate means "no estimate" rather than a dead link, and with no
+  feedback the encoder keeps its fixed bitrate. It is a control-plane package and
+  adds no floating point to the fixed-point codec path.
 
 The public API follows the conventions of its sibling project
 [go-flac](https://github.com/tphakala/go-flac).

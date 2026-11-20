@@ -248,3 +248,30 @@ func (e *MultistreamEncoder) FinalRange() uint32 { return e.enc.FinalRange() }
 // Reset clears cross-frame state in every sub-encoder while keeping the configured
 // layout and tuning, mirroring opus_multistream_encoder_ctl(OPUS_RESET_STATE).
 func (e *MultistreamEncoder) Reset() { e.enc.ResetState() }
+
+// SetBitrate changes the aggregate target bitrate in the middle of a stream,
+// mirroring opus_multistream_encoder_ctl(OPUS_SET_BITRATE) between frames, without
+// rebuilding the encoder or resetting any sub-encoder's cross-frame state. The
+// target is the rate for the WHOLE multistream packet; libopus divides it across
+// the sub-streams. Zero selects automatic; a positive value is clamped into
+// [500*Channels, 750000*Channels]; a negative value is rejected with ErrBadArg and
+// leaves the current target unchanged. As with the single-stream Encoder, packets
+// before and after a change stay one continuously decodable stream.
+func (e *MultistreamEncoder) SetBitrate(bitrate int) error {
+	if bitrate < 0 {
+		return fmt.Errorf("%w: bitrate %d (want a positive bits-per-second, or 0 for automatic)",
+			ErrBadArg, bitrate)
+	}
+	v := int32(opusenc.OpusAuto)
+	if bitrate > 0 {
+		if maxBitrate := 750000 * e.channels; bitrate > maxBitrate {
+			v = int32(maxBitrate)
+		} else {
+			v = int32(bitrate)
+		}
+	}
+	if err := e.enc.SetBitrate(v); err != nil {
+		return mapEncErr(err)
+	}
+	return nil
+}

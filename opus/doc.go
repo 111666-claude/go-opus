@@ -8,4 +8,9 @@
 // encoding are not implemented. The decoder is the full RFC 6716 decoder and
 // handles all three modes. The container layer lives in the sibling oggopus
 // package.
+//
+// Encoder.SetBitrate changes the target rate between frames without rebuilding the
+// encoder or resetting codec state, so a live stream can adapt to network
+// conditions while staying continuously decodable; the ratectl package provides
+// the feedback-driven control law on top of it.
 package opus

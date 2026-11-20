@@ -26,4 +26,15 @@
 // (ambisonics with a demixing matrix, which needs a projection decoder) and the
 // reserved families 4 to 254 fail NewDecoder and Reset with an error wrapping
 // opus.ErrUnsupported. The encoder writes family 0 only.
+//
+// # Real-time rate control
+//
+// Encoder.SetBitrate changes the target bitrate while a stream is in progress
+// without rebuilding the codec or resetting any cross-frame state, so the packets
+// before and after a change remain one continuously decodable stream. Because the
+// writer derives page sequence numbers from packet order and granule positions
+// from the coded sample count, neither jumps when the rate changes. The sibling
+// ratectl package turns transport feedback (loss, queueing delay, available
+// bandwidth) into bounded, ramp-limited targets and drives this method. With no
+// such input the encoder keeps its configured fixed bitrate.
 package oggopus

@@ -6,6 +6,8 @@ import (
 	"io"
 	"math/rand/v2"
 	"sync"
+
+	"github.com/tphakala/go-opus/opus"
 )
 
 // Encoder implements io.WriteCloser, byte-for-byte the go-flac pcm.Encoder shape.
@@ -145,6 +147,54 @@ func (e *Encoder) Write(p []byte) (int, error) {
 		return 0, errUninitialized
 	}
 	return e.write(p)
+}
+
+// SetBitrate changes the encoder's target bitrate in bits per second while a
+// stream is in progress, the container-facing entry point for real-time rate
+// control. It forwards to the underlying codec's mid-stream OPUS_SET_BITRATE,
+// which changes only the target used by subsequent packets: it neither rebuilds
+// the codec nor clears any cross-frame state, so every packet before and after the
+// change stays part of one continuously decodable stream. Because the Ogg writer
+// derives page sequence numbers from packet order and granule positions from the
+// coded sample count, neither jumps when the rate changes. Call it between Write
+// calls; a change applied while a partial frame is buffered takes effect on the
+// next completed frame.
+//
+// Zero selects automatic bitrate; a positive value is clamped to the codec's
+// allowed range. It returns ErrClosed after Close, errUninitialized on a zero or
+// failed-Reset encoder, and ErrUnsupported if the codec behind the seam cannot
+// change its rate at runtime.
+func (e *Encoder) SetBitrate(bps int) error {
+	if e.closed {
+		return ErrClosed
+	}
+	if e.enc == nil {
+		return errUninitialized
+	}
+	setter, ok := e.enc.(bitrateSetter)
+	if !ok {
+		return fmt.Errorf("%w: the codec does not support mid-stream bitrate changes", opus.ErrUnsupported)
+	}
+	return setter.setBitrate(bps)
+}
+
+// Bitrate reports the codec's current user-configured target bitrate in bits per
+// second, or zero when it is automatic. It is the requested target, not necessarily
+// the exact rate of the last packet (CBR requantizes to a whole-byte budget and the
+// encoder adapts to its buffer). It returns ErrClosed after Close and
+// errUninitialized on a zero or failed-Reset encoder.
+func (e *Encoder) Bitrate() (int, error) {
+	if e.closed {
+		return 0, ErrClosed
+	}
+	if e.enc == nil {
+		return 0, errUninitialized
+	}
+	getter, ok := e.enc.(bitrateGetter)
+	if !ok {
+		return 0, fmt.Errorf("%w: the codec does not expose a runtime bitrate", opus.ErrUnsupported)
+	}
+	return getter.bitrate(), nil
 }
 
 func (e *Encoder) write(p []byte) (int, error) {

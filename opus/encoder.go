@@ -315,6 +315,61 @@ func (e *Encoder) Reset() {
 	e.enc.Reset()
 }
 
+// SetBitrate changes the target bitrate in the middle of a stream, mirroring
+// opus_encoder_ctl(OPUS_SET_BITRATE) between frames, WITHOUT rebuilding the
+// encoder and WITHOUT resetting any cross-frame state. The next Encode call reads
+// the new target through the same per-frame rate resolution as the original
+// config (the rate is re-derived from the user target on every frame), so the
+// change takes effect on the very next packet while the delay-compensation ring,
+// DC blocker, CELT overlap-add, energy prediction, prefilter and VBR reservoir all
+// carry across unchanged. Because none of that state is touched and the Opus
+// packet format carries no stream-level rate field, the packets before and after
+// a change remain one continuously decodable stream; an Ogg container keeps
+// consecutive page sequence numbers and monotonic granule positions.
+//
+// bitrate is the target in bits per second. Zero selects automatic (OPUS_AUTO);
+// a positive value is clamped into [500, 750000*Channels], exactly as
+// OPUS_SET_BITRATE does; a negative value other than zero is rejected with
+// ErrBadArg and leaves the current target unchanged. This is the runtime entry
+// point the ratectl package drives; EncoderConfig.Bitrate sets the same target at
+// construction.
+func (e *Encoder) SetBitrate(bitrate int) error {
+	if bitrate < 0 {
+		return fmt.Errorf("%w: bitrate %d (want a positive bits-per-second, or 0 for automatic)",
+			ErrBadArg, bitrate)
+	}
+	v := int32(opusenc.OpusAuto)
+	if bitrate > 0 {
+		// Clamp in Go BEFORE the int32 narrowing, mirroring NewEncoder, so a value
+		// above MaxInt32 cannot wrap into OPUS_AUTO or a negative rate.
+		if maxBitrate := 750000 * e.channels; bitrate > maxBitrate {
+			v = int32(maxBitrate)
+		} else {
+			v = int32(bitrate)
+		}
+	}
+	if err := e.enc.SetBitrate(v); err != nil {
+		return mapEncErr(err)
+	}
+	return nil
+}
+
+// Bitrate reports the current user-configured target bitrate in bits per second,
+// the counterpart of SetBitrate and of OPUS_GET_BITRATE. It returns zero when the
+// target is automatic (OPUS_AUTO) or set to OPUS_BITRATE_MAX; otherwise it is the
+// concrete positive target. It is the requested target, not the exact rate the
+// last packet used: under CBR the per-frame rate is requantized to a whole-byte
+// packet budget and the encoder adapts to the output buffer, so individual
+// packets can differ slightly.
+func (e *Encoder) Bitrate() int {
+	switch v := e.enc.UserBitrateBps(); v {
+	case opusenc.OpusAuto, opusenc.OpusBitrateMax:
+		return 0
+	default:
+		return int(v)
+	}
+}
+
 // mapEncErr translates an internal opusenc error into the public sentinel set. It
 // double-wraps, exactly as mapDecErr does, so errors.Is finds both the public
 // sentinel and the internal one.
